@@ -1,16 +1,39 @@
 //! Authentication extractors for Axum handlers
 
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::{request::Parts, header::AUTHORIZATION, StatusCode},
-    response::{IntoResponse, Response},
-    Json, RequestPartsExt,
-};
-use axum::extract::State;
+use axum::{extract::FromRequestParts, http::{header::AUTHORIZATION, request::Parts, StatusCode}, response::{IntoResponse, Response}, Json};
 use serde::Serialize;
 
 use super::{config::AuthConfig, jwt::{verify_access_token, Claims}};
+
+fn extract_auth_user_from_parts(parts: &mut Parts) -> Result<AuthUser, AuthError> {
+    // Get AuthConfig from extensions (set by middleware)
+    let auth_config = parts
+        .extensions
+        .get::<AuthConfig>()
+        .cloned()
+        .ok_or_else(|| {
+            tracing::error!("AuthConfig not found in extensions. Did you call .with_auth()?");
+            AuthError::Internal("Auth not configured".to_string())
+        })?;
+    
+    // Extract Authorization header
+    let auth_header = parts
+        .headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(AuthError::MissingToken)?;
+    
+    // Parse Bearer token
+    let token = auth_header
+        .strip_prefix("Bearer ")
+        .ok_or(AuthError::MissingToken)?;
+    
+    // Verify token and extract claims
+    let claims = verify_access_token(token, &auth_config)
+        .map_err(|_| AuthError::InvalidToken)?;
+    
+    Ok(AuthUser::from_claims(claims))
+}
 
 /// Authenticated user extracted from JWT token
 /// 
@@ -166,41 +189,17 @@ pub struct AuthState {
     pub config: AuthConfig,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
 {
     type Rejection = AuthError;
     
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Get AuthConfig from extensions (set by middleware)
-        let auth_config = parts
-            .extensions
-            .get::<AuthConfig>()
-            .cloned()
-            .ok_or_else(|| {
-                tracing::error!("AuthConfig not found in extensions. Did you call .with_auth()?");
-                AuthError::Internal("Auth not configured".to_string())
-            })?;
-        
-        // Extract Authorization header
-        let auth_header = parts
-            .headers
-            .get(AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .ok_or(AuthError::MissingToken)?;
-        
-        // Parse Bearer token
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .ok_or(AuthError::MissingToken)?;
-        
-        // Verify token and extract claims
-        let claims = verify_access_token(token, &auth_config)
-            .map_err(|_| AuthError::InvalidToken)?;
-        
-        Ok(AuthUser::from_claims(claims))
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move { extract_auth_user_from_parts(parts) }
     }
 }
 
@@ -223,16 +222,21 @@ where
 #[derive(Debug, Clone)]
 pub struct OptionalAuthUser(pub Option<AuthUser>);
 
-#[async_trait]
 impl<S> FromRequestParts<S> for OptionalAuthUser
 where
     S: Send + Sync,
 {
     type Rejection = std::convert::Infallible;
     
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let user = AuthUser::from_request_parts(parts, state).await.ok();
-        Ok(OptionalAuthUser(user))
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            // Reuse the same extraction logic but swallow errors.
+            let user = extract_auth_user_from_parts(parts).ok();
+            Ok(OptionalAuthUser(user))
+        }
     }
 }
 
