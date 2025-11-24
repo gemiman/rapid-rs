@@ -34,6 +34,49 @@ struct ValidationErrorResponse {
     errors: Vec<ValidationFieldError>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::ValidatedJson;
+    use axum::{
+        body::Body,
+        extract::FromRequest,
+        http::Request,
+    };
+    use serde::Deserialize;
+    use validator::Validate;
+
+    #[derive(Debug, Deserialize, Validate)]
+    struct TestPayload {
+        #[validate(length(min = 3))]
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn validated_json_accepts_valid_payload() {
+        let req = Request::builder()
+            .uri("/")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"name":"abc"}"#))
+            .unwrap();
+
+        let result = ValidatedJson::<TestPayload>::from_request(req, &()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().0.name, "abc");
+    }
+
+    #[tokio::test]
+    async fn validated_json_rejects_invalid_payload() {
+        let req = Request::builder()
+            .uri("/")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"name":"a"}"#))
+            .unwrap();
+
+        let result = ValidatedJson::<TestPayload>::from_request(req, &()).await;
+        assert!(result.is_err(), "expected validation error for short name");
+    }
+}
+
 #[derive(Serialize)]
 struct ValidationFieldError {
     field: String,
