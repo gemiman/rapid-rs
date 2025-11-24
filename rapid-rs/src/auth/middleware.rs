@@ -1,15 +1,7 @@
 //! Authentication middleware for protecting routes
 
-use axum::{
-    body::Body,
-    extract::Request,
-    http::{Response, StatusCode},
-    middleware::Next,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::IntoResponse, Json};
 use serde::Serialize;
-use std::sync::Arc;
 
 use super::config::AuthConfig;
 use super::jwt::verify_access_token;
@@ -114,6 +106,7 @@ impl RequireAuth {
 ///     .layer(RequireRoles::new(vec!["admin"]));
 /// ```
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct RequireRoles {
     roles: Vec<String>,
     require_all: bool,

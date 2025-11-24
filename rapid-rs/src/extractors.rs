@@ -2,8 +2,6 @@ use axum::{extract::{FromRequest, Request}, http::StatusCode, response::{IntoRes
 use serde::{de::DeserializeOwned, Serialize};
 use validator::Validate;
 
-use crate::error::ApiError;
-
 /// Extractor that deserializes and validates JSON payloads
 ///
 /// # Example

@@ -1,8 +1,4 @@
-use axum::{
-    Router,
-    extract::Request,
-    http::Method,
-};
+use axum::{http::Method, Router};
 use std::net::SocketAddr;
 use tower_http::{
     cors::CorsLayer,
