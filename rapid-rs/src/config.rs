@@ -67,3 +67,49 @@ impl Default for AppConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+    use std::env;
+
+    fn clear_app_env() {
+        for key in [
+            "APP__SERVER__HOST",
+            "APP__SERVER__PORT",
+            "APP__DATABASE__URL",
+            "APP__DATABASE__MAX_CONNECTIONS",
+        ] {
+            unsafe { env::remove_var(key) };
+        }
+    }
+
+    #[test]
+    fn default_config_matches_expected_values() {
+        clear_app_env();
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.server.host, "0.0.0.0");
+        assert_eq!(cfg.server.port, 3000);
+        assert_eq!(cfg.database.url, "postgres://localhost/rapid_rs");
+        assert_eq!(cfg.database.max_connections, 10);
+    }
+
+    #[test]
+    fn env_overrides_take_precedence() {
+        clear_app_env();
+        unsafe {
+            env::set_var("APP__SERVER__HOST", "127.0.0.1");
+            env::set_var("APP__SERVER__PORT", "4242");
+            env::set_var("APP__DATABASE__URL", "postgres://example/db");
+            env::set_var("APP__DATABASE__MAX_CONNECTIONS", "42");
+        }
+
+        let cfg = AppConfig::load().expect("config should load from env");
+        assert_eq!(cfg.server.host, "127.0.0.1");
+        assert_eq!(cfg.server.port, 4242);
+        assert_eq!(cfg.database.url, "postgres://example/db");
+        assert_eq!(cfg.database.max_connections, 42);
+
+        clear_app_env();
+    }
+}

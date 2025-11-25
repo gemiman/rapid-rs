@@ -332,3 +332,113 @@ pub fn auth_routes_with_store<S: UserStore + Clone>(
 pub fn auth_routes(config: AuthConfig) -> Router {
     auth_routes_with_store(config, InMemoryUserStore::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::{Request, StatusCode}, middleware, middleware::Next};
+    use axum::body::to_bytes;
+    use serde_json::Value;
+    use tower::ServiceExt;
+
+    fn test_app() -> Router {
+        let config = AuthConfig::default();
+        let routes = auth_routes_with_store(config.clone(), InMemoryUserStore::new());
+        routes.layer(middleware::from_fn(move |mut req: Request<Body>, next: Next| {
+            let cfg = config.clone();
+            async move {
+                req.extensions_mut().insert(cfg);
+                next.run(req).await
+            }
+        }))
+    }
+
+    fn json_req(uri: &str, body: &Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn register_then_me_returns_user_info() {
+        let app = test_app();
+        let payload = serde_json::json!({
+            "email": "user@example.com",
+            "password": "StrongPass1",
+            "name": "User"
+        });
+
+        let res = app
+            .clone()
+            .oneshot(json_req("/auth/register", &payload))
+            .await
+            .expect("register request should succeed");
+        assert_eq!(res.status(), StatusCode::OK);
+        let body: AuthResponse = serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+
+        let me_req = Request::builder()
+            .method("GET")
+            .uri("/auth/me")
+            .header("authorization", format!("Bearer {}", body.access_token))
+            .body(Body::empty())
+            .unwrap();
+
+        let me_res = app
+            .clone()
+            .oneshot(me_req)
+            .await
+            .expect("me request should succeed");
+        assert_eq!(me_res.status(), StatusCode::OK);
+        let user: AuthUserInfo = serde_json::from_slice(&to_bytes(me_res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(user.email, "user@example.com");
+        assert_eq!(user.name, "User");
+        assert_eq!(user.roles, vec!["user".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn login_and_refresh_flow() {
+        let app = test_app();
+        // Register first
+        let register_payload = serde_json::json!({
+            "email": "login@example.com",
+            "password": "StrongPass1",
+            "name": "Login"
+        });
+        let _ = app.clone().oneshot(json_req("/auth/register", &register_payload)).await.unwrap();
+
+        // Login
+        let login_payload = serde_json::json!({
+            "email": "login@example.com",
+            "password": "StrongPass1"
+        });
+        let login_res = app.clone().oneshot(json_req("/auth/login", &login_payload)).await.unwrap();
+        assert_eq!(login_res.status(), StatusCode::OK);
+        let login_body: AuthResponse = serde_json::from_slice(&to_bytes(login_res.into_body(), usize::MAX).await.unwrap()).unwrap();
+
+        // Refresh
+        let refresh_payload = serde_json::json!({
+            "refresh_token": login_body.refresh_token
+        });
+        let refresh_res = app.oneshot(json_req("/auth/refresh", &refresh_payload)).await.unwrap();
+        assert_eq!(refresh_res.status(), StatusCode::OK);
+        let refreshed: AuthResponse = serde_json::from_slice(&to_bytes(refresh_res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(refreshed.user.email, "login@example.com");
+    }
+
+    #[tokio::test]
+    async fn logout_returns_message() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/auth/logout")
+            .body(Body::empty())
+            .unwrap();
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let msg: MessageResponse = serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(msg.message, "Successfully logged out");
+    }
+}

@@ -91,3 +91,31 @@ impl IntoResponse for ApiError {
 
 /// Convenient Result type for API handlers
 pub type ApiResult<T> = Result<Json<T>, ApiError>;
+
+#[cfg(test)]
+mod tests {
+    use super::ApiError;
+    use axum::{body, http::StatusCode, response::IntoResponse};
+    use serde_json::Value;
+
+    #[tokio::test]
+    async fn maps_variants_to_status_and_code() {
+        let cases = vec![
+            (ApiError::NotFound("x".into()), StatusCode::NOT_FOUND, "NOT_FOUND"),
+            (ApiError::BadRequest("x".into()), StatusCode::BAD_REQUEST, "BAD_REQUEST"),
+            (ApiError::Unauthorized, StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
+            (ApiError::Forbidden, StatusCode::FORBIDDEN, "FORBIDDEN"),
+            (ApiError::ValidationError("x".into()), StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_ERROR"),
+            (ApiError::InternalServerError("x".into()), StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR"),
+        ];
+
+        for (err, expected_status, expected_code) in cases {
+            let resp = err.into_response();
+            let status = resp.status();
+            let body = body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            let json: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(status, expected_status);
+            assert_eq!(json.get("code").unwrap(), expected_code);
+        }
+    }
+}

@@ -82,3 +82,54 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RequestIdLayer;
+    use axum::{body::Body, http::Request, response::Response};
+    use tower::{service_fn, ServiceBuilder, ServiceExt};
+
+    #[tokio::test]
+    async fn generates_request_id_when_missing() {
+        let svc = ServiceBuilder::new()
+            .layer(RequestIdLayer::new())
+            .service(service_fn(|req: Request| async move {
+                // Request extensions should contain request id
+                let id = req.extensions().get::<String>().cloned();
+                assert!(id.is_some());
+                Ok::<_, std::convert::Infallible>(Response::new(Body::empty()))
+            }));
+
+        let resp = svc
+            .oneshot(Request::new(Body::empty()))
+            .await
+            .expect("service should succeed");
+
+        let header = resp.headers().get("x-request-id");
+        assert!(header.is_some(), "response should carry generated request id");
+    }
+
+    #[tokio::test]
+    async fn preserves_existing_request_id_header() {
+        let svc = ServiceBuilder::new()
+            .layer(RequestIdLayer::new())
+            .service(service_fn(|req: Request| async move {
+                let id = req.extensions().get::<String>().cloned();
+                Ok::<_, std::convert::Infallible>(Response::new(Body::from(
+                    id.unwrap_or_default(),
+                )))
+            }));
+
+        let req = Request::builder()
+            .header("x-request-id", "abc-123")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = svc.oneshot(req).await.expect("service should succeed");
+        assert_eq!(
+            resp.headers().get("x-request-id").unwrap(),
+            "abc-123",
+            "existing header should be retained"
+        );
+    }
+}

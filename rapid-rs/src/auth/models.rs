@@ -41,7 +41,7 @@ pub struct TokenRefreshRequest {
 }
 
 /// Authentication response containing tokens
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthResponse {
     /// JWT access token (short-lived)
     pub access_token: String,
@@ -60,7 +60,7 @@ pub struct AuthResponse {
 }
 
 /// User information returned in auth responses
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthUserInfo {
     /// User ID
     pub id: String,
@@ -115,7 +115,7 @@ pub struct PasswordResetConfirm {
 }
 
 /// Generic message response
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MessageResponse {
     pub message: String,
 }

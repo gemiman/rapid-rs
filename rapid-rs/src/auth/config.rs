@@ -118,3 +118,53 @@ impl Default for AuthConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AuthConfig;
+    use std::env;
+    use std::time::Duration;
+
+    #[test]
+    fn builder_helpers_set_expected_values() {
+        let cfg = AuthConfig::new("secret")
+            .access_token_expiry(Duration::from_secs(10))
+            .refresh_token_expiry(Duration::from_secs(20))
+            .issuer("issuer")
+            .audience("aud");
+
+        assert_eq!(cfg.jwt_secret, "secret");
+        assert_eq!(cfg.access_token_expiry_secs, 10);
+        assert_eq!(cfg.refresh_token_expiry_secs, 20);
+        assert_eq!(cfg.issuer, "issuer");
+        assert_eq!(cfg.audience, "aud");
+    }
+
+    #[test]
+    fn env_overrides_apply_when_present() {
+        unsafe {
+            env::set_var("AUTH_JWT_SECRET", "env-secret");
+            env::set_var("AUTH_ACCESS_TOKEN_EXPIRY_SECS", "111");
+            env::set_var("AUTH_REFRESH_TOKEN_EXPIRY_SECS", "222");
+            env::set_var("AUTH_ISSUER", "env-iss");
+            env::set_var("AUTH_AUDIENCE", "env-aud");
+        }
+
+        let cfg = AuthConfig::from_env();
+        assert_eq!(cfg.jwt_secret, "env-secret");
+        assert_eq!(cfg.access_token_expiry_secs, 111);
+        assert_eq!(cfg.refresh_token_expiry_secs, 222);
+        assert_eq!(cfg.issuer, "env-iss");
+        assert_eq!(cfg.audience, "env-aud");
+
+        for key in [
+            "AUTH_JWT_SECRET",
+            "AUTH_ACCESS_TOKEN_EXPIRY_SECS",
+            "AUTH_REFRESH_TOKEN_EXPIRY_SECS",
+            "AUTH_ISSUER",
+            "AUTH_AUDIENCE",
+        ] {
+            unsafe { env::remove_var(key) };
+        }
+    }
+}
